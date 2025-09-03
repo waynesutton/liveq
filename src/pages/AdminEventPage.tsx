@@ -13,6 +13,7 @@ const AdminEventPage: React.FC = () => {
 
   const [activeAnswerBox, setActiveAnswerBox] = useState<string | null>(null);
   const [answerContent, setAnswerContent] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   // State for delete confirmation modal
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -39,6 +40,13 @@ const AdminEventPage: React.FC = () => {
   const markAsAnswered = useMutation(api.functions.markQuestionAsAnswered);
   const toggleVisibility = useMutation(api.functions.toggleQuestionVisibility);
   const deleteQuestion = useMutation(api.functions.deleteQuestion);
+  const toggleVisibilityBulkMutation = useMutation(
+    api.functions.bulkToggleVisibility,
+  );
+  const deleteQuestionsBulkMutation = useMutation(
+    api.functions.bulkDeleteQuestions,
+  );
+  const exportCsvAction = api.functions.exportEventQuestionsCsvAction as any;
 
   // Handler functions for moderation
   const handleToggleAnswerBox = (
@@ -110,6 +118,21 @@ const AdminEventPage: React.FC = () => {
       console.error("Failed to mark question as answered:", error);
     }
   };
+
+  async function toggleVisibilityBulk(ids: Array<any>, hide: boolean) {
+    await toggleVisibilityBulkMutation({ questionIds: ids as any, hide });
+  }
+
+  async function deleteQuestionsBulk(ids: Array<any>) {
+    await deleteQuestionsBulkMutation({ questionIds: ids as any });
+  }
+
+  async function exportCsv(eventId: any): Promise<string> {
+    const csv = await (window as any).convex?.actions?.run?.(exportCsvAction, {
+      eventId,
+    });
+    return csv || "";
+  }
 
   // Check if user has admin role
   const userRole = user?.publicMetadata?.role;
@@ -187,6 +210,18 @@ const AdminEventPage: React.FC = () => {
                 </small>
               </div>
               <div className="moderation-actions">
+                <input
+                  type="checkbox"
+                  checked={!!selectedIds[question._id as any]}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSelectedIds((prev) => ({
+                      ...prev,
+                      [question._id as any]: checked,
+                    }));
+                  }}
+                  style={{ marginRight: 8 }}
+                />
                 <button
                   onClick={() =>
                     handleToggleAnswerBox(question._id, question.answer)
@@ -283,6 +318,68 @@ const AdminEventPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Bulk actions */}
+      <div className="admin-section">
+        <h2>Bulk actions</h2>
+        <div className="admin-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              const ids = Object.entries(selectedIds)
+                .filter(([, v]) => v)
+                .map(([k]) => k as any);
+              if (ids.length === 0) return;
+              await toggleVisibilityBulk(ids, true);
+              setSelectedIds({});
+            }}
+          >
+            Hide selected
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              const ids = Object.entries(selectedIds)
+                .filter(([, v]) => v)
+                .map(([k]) => k as any);
+              if (ids.length === 0) return;
+              await toggleVisibilityBulk(ids, false);
+              setSelectedIds({});
+            }}
+          >
+            Unhide selected
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={async () => {
+              const ids = Object.entries(selectedIds)
+                .filter(([, v]) => v)
+                .map(([k]) => k as any);
+              if (ids.length === 0) return;
+              if (!confirm("Delete selected questions?")) return;
+              await deleteQuestionsBulk(ids);
+              setSelectedIds({});
+            }}
+          >
+            Delete selected
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              if (!event?._id) return;
+              const csv = await exportCsv(event._id as any);
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${event.title}-questions.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
+      </div>
       {/* Delete Confirmation Modal */}
       {deleteConfirmation && (
         <div className="notification-modal">

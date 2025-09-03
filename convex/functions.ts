@@ -1,5 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internalAction, internalQuery, action } from "./_generated/server";
+import { api } from "./_generated/api";
 
 // Helper function to check if user has admin role
 async function requireAdminRole(ctx: any) {
@@ -548,6 +550,185 @@ export const listQuestionsForAdmin = query({
       .order("desc")
       .collect();
     return questions;
+  },
+});
+
+/**
+ * Full text search for questions (public)
+ */
+export const searchQuestionsByText = query({
+  args: { eventId: v.id("events"), query: v.string() },
+  returns: v.array(
+    v.object({
+      _id: v.id("questions"),
+      _creationTime: v.number(),
+      eventId: v.id("events"),
+      content: v.string(),
+      authorName: v.optional(v.string()),
+      upvotes: v.number(),
+      isVisible: v.boolean(),
+      answered: v.optional(v.boolean()),
+      answer: v.optional(v.string()),
+      answeredBy: v.optional(v.string()),
+      answeredAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const results = await ctx.db
+      .query("questions")
+      .withSearchIndex("search_content", (q) =>
+        q.search("content", args.query).eq("eventId", args.eventId),
+      )
+      .filter((q) => q.eq(q.field("isVisible"), true))
+      .take(50);
+    return results;
+  },
+});
+
+// ===== VECTOR SEARCH (optional, simple demo) =====
+
+export const indexQuestionEmbedding = mutation({
+  args: { questionId: v.id("questions"), embedding: v.array(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Store embedding for vector search
+    await ctx.db.patch(args.questionId, {
+      embedding: args.embedding,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const searchQuestionsByEmbedding = action({
+  args: { eventId: v.id("events"), embedding: v.array(v.number()) },
+  returns: v.array(v.id("questions")),
+  handler: async (ctx, args) => {
+    const results = await ctx.vectorSearch("questions", "by_embedding", {
+      vector: args.embedding,
+      limit: 20,
+      filter: (q) => q.eq("eventId", args.eventId),
+    });
+    return results.map((r) => r._id);
+  },
+});
+
+export const getQuestionsByIds = query({
+  args: { ids: v.array(v.id("questions")) },
+  returns: v.array(
+    v.object({
+      _id: v.id("questions"),
+      _creationTime: v.number(),
+      eventId: v.id("events"),
+      content: v.string(),
+      authorName: v.optional(v.string()),
+      upvotes: v.number(),
+      isVisible: v.boolean(),
+      answered: v.optional(v.boolean()),
+      answer: v.optional(v.string()),
+      answeredBy: v.optional(v.string()),
+      answeredAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const docs = [] as any[];
+    for (const id of args.ids) {
+      const doc = await ctx.db.get(id);
+      if (doc) docs.push(doc);
+    }
+    return docs;
+  },
+});
+
+// ===== ADMIN BULK OPS =====
+
+export const bulkToggleVisibility = mutation({
+  args: { questionIds: v.array(v.id("questions")), hide: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdminRole(ctx);
+    for (const qid of args.questionIds) {
+      const q = await ctx.db.get(qid);
+      if (q) {
+        await ctx.db.patch(qid, {
+          isVisible: !args.hide,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    return null;
+  },
+});
+
+export const bulkDeleteQuestions = mutation({
+  args: { questionIds: v.array(v.id("questions")) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdminRole(ctx);
+    for (const qid of args.questionIds) {
+      await ctx.db.delete(qid);
+    }
+    return null;
+  },
+});
+
+export const exportEventQuestionsCsv = query({
+  args: { eventId: v.id("events") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    await requireAdminRole(ctx);
+    const rows = await ctx.db
+      .query("questions")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .order("asc")
+      .collect();
+    const header = [
+      "_id",
+      "createdAt",
+      "authorName",
+      "content",
+      "upvotes",
+      "isVisible",
+      "answered",
+      "answeredBy",
+      "answeredAt",
+    ];
+    const csv = [header.join(",")]
+      .concat(
+        rows.map((r) =>
+          [
+            r._id,
+            new Date(r.createdAt).toISOString(),
+            JSON.stringify(r.authorName ?? ""),
+            JSON.stringify(r.content),
+            r.upvotes,
+            r.isVisible,
+            r.answered ?? false,
+            JSON.stringify(r.answeredBy ?? ""),
+            r.answeredAt ? new Date(r.answeredAt).toISOString() : "",
+          ].join(","),
+        ),
+      )
+      .join("\n");
+    return csv;
+  },
+});
+
+export const exportEventQuestionsCsvAction = action({
+  args: { eventId: v.id("events") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const csv: string = await ctx.runQuery(
+      api.functions.exportEventQuestionsCsv,
+      {
+        eventId: args.eventId,
+      },
+    );
+    return csv;
   },
 });
 

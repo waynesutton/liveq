@@ -28,7 +28,19 @@ export default defineSchema({
     answeredAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_event", ["eventId"]),
+    // Optional embedding for vector search
+    embedding: v.optional(v.array(v.float64())),
+  })
+    .index("by_event", ["eventId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["eventId"],
+    })
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["eventId", "isVisible"],
+    }),
 
   comments: defineTable({
     questionId: v.id("questions"),

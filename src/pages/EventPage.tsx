@@ -52,9 +52,23 @@ const EventPage: React.FC = () => {
   // Move useMemo hooks before any conditional returns
   const currentUrl = window.location.href;
 
-  const sortedQuestions = React.useMemo(() => {
-    if (!questions) return [];
+  // Full text search input (reactive)
+  const [searchText, setSearchText] = useState("");
+  const textResults = useQuery(
+    api.functions.searchQuestionsByText,
+    searchText.trim() && event?._id
+      ? { eventId: event._id as any, query: searchText.trim() }
+      : "skip",
+  );
 
+  const sortedQuestions = React.useMemo(() => {
+    // When searching, use search results as-is (they come in relevance order)
+    if (searchText.trim()) {
+      return textResults || [];
+    }
+
+    // When not searching, use normal questions with sorting
+    if (!questions) return [];
     const allQuestions = [...questions];
 
     if (sortBy === "answered") {
@@ -81,7 +95,7 @@ const EventPage: React.FC = () => {
       // Default sort by votes
       return b.upvotes - a.upvotes;
     });
-  }, [questions, sortBy]);
+  }, [questions, textResults, searchText, sortBy]);
 
   const handleSubmitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,10 +167,44 @@ const EventPage: React.FC = () => {
           <div className="list-header">
             <h3>Questions</h3>
           </div>
-          {/* Questions List   ({questions.length})*/}
+          {/* Questions List */}
+          {searchText.trim() && (
+            <div
+              style={{
+                marginBottom: "1rem",
+                fontSize: "0.9rem",
+                color: "#666",
+              }}
+            >
+              {textResults === undefined ? (
+                <span>Searching...</span>
+              ) : (
+                <span>
+                  {textResults.length} result
+                  {textResults.length !== 1 ? "s" : ""} for "{searchText.trim()}
+                  " (sorted by relevance)
+                  <button
+                    onClick={() => setSearchText("")}
+                    style={{
+                      marginLeft: "0.5rem",
+                      background: "none",
+                      border: "none",
+                      color: "#666",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Clear
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
           {sortedQuestions.length === 0 ? (
             <p className="empty-state">
-              No questions yet. Be the first to ask!
+              {searchText.trim()
+                ? `No questions found for "${searchText.trim()}"`
+                : "No questions yet. Be the first to ask!"}
             </p>
           ) : (
             <div className="questions-list">
@@ -313,27 +361,38 @@ const EventPage: React.FC = () => {
           )}
 
           {/* Sort Options - Above Ask a Question */}
-          <div className="sort-options-compact">
-            <span className="sort-label-inline">Sort by:</span>
-            <button
-              onClick={() => setSortBy("votes")}
-              className={`sort-btn-small ${sortBy === "votes" ? "active" : ""}`}
-            >
-              Most Voted
-            </button>
-            <button
-              onClick={() => setSortBy("recent")}
-              className={`sort-btn-small ${sortBy === "recent" ? "active" : ""}`}
-            >
-              Most Recent
-            </button>
-            <button
-              onClick={() => setSortBy("answered")}
-              className={`sort-btn-small ${sortBy === "answered" ? "active" : ""}`}
-            >
-              Answered
-            </button>
-          </div>
+          {!searchText.trim() && (
+            <div className="sort-options-compact">
+              <span className="sort-label-inline">Sort by:</span>
+              <button
+                onClick={() => {
+                  setSortBy("votes");
+                  setSearchText(""); // Clear search when sorting
+                }}
+                className={`sort-btn-small ${sortBy === "votes" ? "active" : ""}`}
+              >
+                Most Voted
+              </button>
+              <button
+                onClick={() => {
+                  setSortBy("recent");
+                  setSearchText(""); // Clear search when sorting
+                }}
+                className={`sort-btn-small ${sortBy === "recent" ? "active" : ""}`}
+              >
+                Most Recent
+              </button>
+              <button
+                onClick={() => {
+                  setSortBy("answered");
+                  setSearchText(""); // Clear search when sorting
+                }}
+                className={`sort-btn-small ${sortBy === "answered" ? "active" : ""}`}
+              >
+                Answered
+              </button>
+            </div>
+          )}
 
           {/* Ask a Question Form - Only show if event is open */}
           {eventStatus && eventStatus.isOpen && (
@@ -383,6 +442,30 @@ const EventPage: React.FC = () => {
               </SignedIn>
             </div>
           )}
+
+          {/* Full text search input (results reflect in left list) */}
+          <div className="question-form-section">
+            <h3>Search Questions</h3>
+            <div className="form-group">
+              <input
+                placeholder="Type to search questions..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="form-input"
+              />
+              {searchText.trim() && (
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#666",
+                    marginTop: "0.5rem",
+                  }}
+                >
+                  Results appear in the questions list on the left
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* QR Code in Bottom Right */}
           <div className="qr-code-toggle">

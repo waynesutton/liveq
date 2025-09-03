@@ -40,6 +40,19 @@ const HomePage: React.FC = () => {
                   {new Date(event.date).toLocaleDateString()}
                 </div>
               )}
+              {/* Public view link above submit CTA for signed-out users */}
+              <div style={{ marginBottom: 8 }}>
+                <Link
+                  to={`/event/${event.title
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")
+                    .replace(/[^a-z0-9-]/g, "")}`}
+                  className="nav-link"
+                  style={{ color: "#000" }}
+                >
+                  View questions
+                </Link>
+              </div>
               <SignedIn>
                 <Link
                   to={`/event/${event.title
